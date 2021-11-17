@@ -26,79 +26,18 @@ class TimeManager {
 			this->time.Minute = (this->time.Minute + minutes) % 60;
 			unsigned short int shift_days = (this->time.Hour + shift_hours) / 24;
 			this->time.Hour = (this->time.Hour + shift_hours) % 24;
-			this->time.WeekDay = ((this->WeekDay-1 + shift_days) % 7) + 1;						
+			this->time.WeekDay = ((this->time.WeekDay-1 + shift_days) % 7) + 1;						
 		}
 
-		bool IsExistUntil(Time &checked, Time until){
-			Time before = this;
-			while()
+		// bool IsExistUntil(Time &checked, Time until){
+		// 	Time before = this;
 
-		}
+		// }
 
 		void Shift(){
 			Shift(1);
 		}
 };
-
-class Storage {
-	public:
-		Storage(){
-			if(!SPIFFS.begin()){
-				Serial.println("SPIFFS Mount Failed");
-				return;
-			}
-		}
-
-
-		bool Write(const String &path, const uint8_t * data, size_t size){
-			File file = SPIFFS.open(path.c_str(), FILE_WRITE);
-			if(!file){
-				Serial.printf("Failed to open %s file.\r\n", path.c_str());
-				return false;
-			};
-			Serial.printf("Bytes writen: %d\r\n", file.write(data, size));
-			file.close();
-			return true;
-		}
-
-		size_t Read(const String &path, char * data, size_t size){
-			File file = SPIFFS.open(path.c_str(), FILE_READ);
-			if(!file){
-				Serial.printf("Open %s file has been failed.\r\n", path.c_str());
-				return 0;
-			}
-			Serial.printf("Reading %s file....\r\n", path.c_str());
-			size_t countBytes = file.readBytes(data, size);
-			Serial.printf("Bytes readed: %d\r\n", countBytes);
-			file.close();
-			return countBytes;
-		}
-
-		bool Delete(const String &path){
-			if(SPIFFS.remove(path)){
-				Serial.printf("File %s has been deleted.\r\n", path.c_str());
-				return true;
-			} else {
-				Serial.printf("Deleting %s file has been failed.\r\n", path.c_str());
-				return false;
-			}
-		}
-
-		bool Rename(const String &oldPath, const String &newPath){
-			if(SPIFFS.rename(oldPath, newPath)){
-				Serial.printf("File %s has been renamed to %s.\r\n", oldPath.c_str(), newPath.c_str());
-				return true;
-			} else {
-				Serial.printf("File %s can't be renamed.\r\n", oldPath.c_str(), newPath.c_str());
-				return false;
-			}
-
-		}
-
-};
-
-Storage * STORAGE;
-
 
 class Schedule {
 	public:
@@ -106,104 +45,104 @@ class Schedule {
 			int task;
     	Time startSwitchTime;
     	unsigned short int totalSwitchMinutes;
-		} ScheduleItem;
+		} Item;
 
     enum Mode {NONE, MODE1, MODE2, MODE3, MODE4, IDLE, TURNOFF};
     String TaskName[7] = {"NONE", "MODE1", "MODE2", "MODE3", "MODE4", "IDLE", "TURNOFF"};
     
 		Schedule(const String &path) : _path(path){
 			Serial.println(path);
-			Read();
+
+			// Read();
 		}
 
-		int GetMode(Time time){
-			for(int i : _items){
-				if(_items[i]){
-					
-			}
-		}
-
-    String GetModeName(Time time){
-      return TaskName[GetTask(time)];
+    String GetModeName(int & mode){
+      return TaskName[mode];
     }
       
-		unsigned short int GetTaskMinutesLeft(Time time){
-			unsigned short int minutes = 1;
-			Task task = GetTask(time);
-			while(true){
-				time.Shift();
-				if(minutes >= 120){
-					return 0;
-				}
-				// Serial.printf("Schedule->GetTaskMinutesLeft->return: Task:%d.\r\n", task);
-				if(GetTask(time) != task){
-					return minutes;
-				}
-				minutes++;
-			}
+		// unsigned short int GetTaskMinutesLeft(Time time){
+		// 	unsigned short int minutes = 1;
+		// 	Task task = GetTask(time);
+		// 	while(true){
+		// 		time.Shift();
+		// 		if(minutes >= 120){
+		// 			return 0;
+		// 		}
+		// 		// Serial.printf("Schedule->GetTaskMinutesLeft->return: Task:%d.\r\n", task);
+		// 		if(GetTask(time) != task){
+		// 			return minutes;
+		// 		}
+		// 		minutes++;
+		// 	}
+		// }
+
+		void ItemsClear(){
+			_items.clear();
 		}
 
-		void AddTask(Time time, byte action, unsigned short int duration_min = 1){
-			for(int i = 0; i < duration_min; i++){
-				_tasks[time.Days-1][time.Hours][time.Minutes] = action;
-				time.Shift();
-			}
-			_is_edited = true;
+		void AddItem(Time & startSwitchTime, unsigned short int totalSwitchMinutes, int task){
+			Item item = {task, startSwitchTime, totalSwitchMinutes};
+			_items.push_back(item);
 		}
 
 		void Write(){
-			Serial.printf("Schedule writing to %s file.\r\n", _path.c_str());
-			STORAGE->Write(_path, (uint8_t*)&_tasks, 7*24*60);
+			// SPIFFS.remove(_path.c_str());
+			File file = SPIFFS.open(_path.c_str(), FILE_WRITE);
+			for(int i = 0; i < _items.size(); i++){
+				file.write((uint8_t*)&_items[i], sizeof(Item));
+			}
+			file.close();
 		}
 
 		void Read(){
-			Serial.printf("Schedule reading from %s file.\r\n", _path.c_str());
-			STORAGE->Read(_path, (char*)&_tasks, 7*24*60);
+			_items.clear();
+			File file = SPIFFS.open(_path.c_str(), FILE_READ);
+			while(file.available()){
+				Item buf;
+				file.readBytes((char*)&buf, sizeof(Item));
+				_items.push_back(buf);
+			}
+			file.close();
 		}
 
-		void ClearTasks(){
-			Serial.printf("Clearing tasks list.\r\n");
-			for(int i = 0; i<7*24*60; i++){
-				((char *)_tasks)[i] = NONE;
+		void Show(){
+			for(int i = 0; i < _items.size(); i++){
+				Serial.println(_items[i].task);
+				Serial.print(_items[i].startSwitchTime.WeekDay);
+				Serial.print(":");
+				Serial.print(_items[i].startSwitchTime.Hour);
+				Serial.print(":");
+				Serial.println(_items[i].startSwitchTime.Minute);
+				Serial.println(_items[i].totalSwitchMinutes);
+				Serial.println("--------");
 			}
 		}
 
-		DynamicJsonDocument TasksToJson(){		
-			Time time(1, 0, 0);
-			int previous = -1;
-			int n = 0;
-			bool isFirst = true;
-			DynamicJsonDocument tasksJson(1024);
-			for (int i = 0; i < sizeof(_tasks); i++){
-				int present = GetTask(time);
-				if(present != previous){
-					Serial.println(GetStringTask(time));
-					Serial.printf("%d:%d:%d\r\n", time.Days, time.Hours, time.Minutes);
-					if(isFirst){
-						tasksJson[n]["mode"] = GetStringTask(time);
-						tasksJson[n]["start"]["weekday"] = time.Days;
-						tasksJson[n]["start"]["time"] = String(time.Hours) + ":" + String(time.Minutes);
-					}else{
-						tasksJson[n]["end"]["weekday"] = time.Days;
-						tasksJson[n]["end"]["time"] = String(time.Hours) + ":" + String(time.Minutes);
-						n++;
-					}
-					isFirst = !isFirst;
-					// Serial.println(ESP.getFreeHeap());
-				}
-				previous = present;
-				time.Shift();
+		DynamicJsonDocument ToJson(){		 
+			DynamicJsonDocument json(JsonSize());
+			int wd[7] = {-1,-1,-1,-1,-1,-1,-1};
+			for (int i = 0; i < _items.size(); i++){
+				uint8_t weekDay = _items[i].startSwitchTime.WeekDay;
+				wd[weekDay-1]++;
+				json["weekday"][String(weekDay)][wd[weekDay-1]]["mode"] = GetModeName(_items[i].task);
+				json["weekday"][String(weekDay)][wd[weekDay-1]]["time"] = String(_items[i].startSwitchTime.Hour) + ":" + String(_items[i].startSwitchTime.Minute);
+				json["weekday"][String(weekDay)][wd[weekDay-1]]["preparemin"] = _items[i].totalSwitchMinutes;
+				
 			}
-			return tasksJson;
+			return json;
+		}
+
+		size_t JsonSize(){
+			return _items.size() * 128;
 		}
 
 	private:
 		String _path;
 		bool _is_edited = false;
-		std::vector<ScheduleItem> _items;
+		std::vector<Item> _items;
 };
 
-Schedule * tasks;
+Schedule tasks("/schedule.bin");
 
 class Ethernet {
 	public:
@@ -233,7 +172,7 @@ class Ethernet {
 		}
 		Ethernet(const String &path) : _path(path){
 			_settings = {"Pzz Oven", "testtest", true};
-			_ReadSettings();
+			// _ReadSettings();
 			if(_settings.isHotspot == true){
 				if(_settings.password == ""){
 					WiFi.softAP(_settings.ssid);
@@ -246,12 +185,12 @@ class Ethernet {
 		}
 
 		DynamicJsonDocument NetworksToJson(){
-			int nwNum = WiFi.scanNetworks();
-			DynamicJsonDocument wifiJson(512);
-			if(nwNum == -1){
+			_nwNum = WiFi.scanNetworks();
+			DynamicJsonDocument wifiJson(JsonSize());
+			if(_nwNum == 0){
 				return wifiJson;
 			}else{
-				for (int i = 0; i < nwNum; i++){
+				for (int i = 0; i < _nwNum; i++){
 					wifiJson[i]["SSID"] = WiFi.SSID(i);
 					wifiJson[i]["RSSI"] = WiFi.RSSI(i);	
 				}
@@ -259,29 +198,35 @@ class Ethernet {
 			return wifiJson;
 		}
 
-		void Connect(EthernetSettings settings){
-			unsigned long time = millis();
-
-			if(settings.password = ""){
-				WiFi.begin(settings.ssid);
-			} else {
-				WiFi.begin(settings.ssid, settings.password);
-			}
-
-			delay(5000);
+		size_t JsonSize(){
+			return abs(_nwNum) * 50;
 		}
+
+		// void Connect(EthernetSettings settings){
+		// 	unsigned long time = millis();
+
+		// 	if(settings.password = ""){
+		// 		WiFi.begin(settings.ssid);
+		// 	} else {
+		// 		WiFi.begin(settings.ssid, settings.password);
+		// 	}
+
+		// 	delay(5000);
+		// }
 
 	private:
 		EthernetSettings _settings;
 		String _path;
+		int _nwNum;
 
-		void _ReadSettings(){
-			STORAGE->Read(_path, (char*)&_settings, sizeof(_settings));
-		}
 
-		void _WriteSettings(){
-			STORAGE->Write(_path, (uint8_t*)&_settings, sizeof(_settings));
-		}
+		// void _ReadSettings(){
+		// 	STORAGE->Read(_path, (char*)&_settings, sizeof(_settings));
+		// }
+
+		// void _WriteSettings(){
+		// 	STORAGE->Write(_path, (uint8_t*)&_settings, sizeof(_settings));
+		// }
 
 };
 
@@ -306,11 +251,11 @@ class WebPanel {
 			_server.begin();
 		}
 		void _AuthHandler(AsyncWebServerRequest* request){
-			// if(request->hasParam("password") && request->hasParam("login")){
-			// 	AsyncWebHeader* password = request->getHeader("password");
-			// 	AsyncWebHeader* login = request->getHeader("login");
-			// 	SHA512 sha512;
-			// }
+			if(request->hasParam("password") && request->hasParam("login")){
+				AsyncWebHeader* password = request->getHeader("password");
+				AsyncWebHeader* login = request->getHeader("login");
+				SHA512 sha512;
+			}
 
 		}
 
@@ -324,11 +269,34 @@ class WebPanel {
 			request->send(200, "text/plain", "The Table");
 		}
 
+		size_t _JsonSizeCalc(AsyncWebServerRequest* request){
+			size_t bytes = 0;
+			if(request->hasParam("table")){
+				bytes += tasks.JsonSize() + 20;
+			}
+			if(request->hasParam("cook_temp")){
+        bytes += 20;
+      }
+      if(request->hasParam("conveyer")){
+        bytes += 15;
+      }
+      if(request->hasParam("fan")){
+        bytes += 15;
+      }
+      if(request->hasParam("led")){
+      	bytes += 25;
+      }
+      if(request->hasParam("wifi")){
+        bytes += ETHERNET->JsonSize() + 20;
+      }
+      return bytes;
+		}
+
 		void _DispenceHandler(AsyncWebServerRequest* request){
-			DynamicJsonDocument dispenceJson(1024);
+			DynamicJsonDocument dispenceJson(_JsonSizeCalc(request));
 
 			if(request->hasParam("table")) {
-				dispenceJson["table"] = tasks->TasksToJson();
+				dispenceJson["table"] = tasks.ToJson();
 			}
 
       if(request->hasParam("cook_temp")){
@@ -369,32 +337,30 @@ WebPanel * WEBPANEL;
 
 
 void setup(){
+	if(!SPIFFS.begin()){
+		Serial.println("SPIFFS Mount Failed");
+	}
 	Serial.begin(115200);
 	// ETHERNET = new Ethernet("ethernet.bin", "Atlantida", "Kukuruza+137", false);
-	ETHERNET = new Ethernet("ethernet.bin", "White Power", "12121212", false);
-	STORAGE = new Storage();
-	tasks = new Schedule("/schedule.bin");
+	// ETHERNET = new Ethernet("ethernet.bin", "White Power", "12121212", false);
+	ETHERNET = new Ethernet("ethernet.bin", "IwG", "qawsedrf", false);
+	// STORAGE = new Storage();
+	
 	new WebPanel(80);
-	tasks->ClearTasks();
-	Serial.printf("Task readed: %d\r\n", tasks->GetTask(Time(6, 10, 34)));
-	tasks->AddTask(Time(6, 10, 34), 3, 45);
- 	tasks->AddTask(Time(1, 0, 0), 4, 20);
- 	tasks->AddTask(Time(2, 12, 00), 1, 60);
-	tasks->AddTask(Time(4, 11, 12), 2, 120);
-  Serial.printf("Task first readed: %d\r\n", tasks->GetTask(Time(6, 10, 34)));
-  Serial.printf("Minutes Left: %d\r\n", tasks->GetTaskMinutesLeft(Time(6, 10, 34)));
-	tasks->Write();
-	tasks->ClearTasks();
-	tasks->Read();
-	Serial.printf("Task second readed: %d\r\n", tasks->GetTask(Time(6, 10, 34)));
-	Serial.printf("Minutes Left: %d\r\n", tasks->GetTaskMinutesLeft(Time(6, 10, 34)));
-
-
-	// Time time(0, 23, 51);
-	// for(int i = 1; i<=63; i++){
-	// 	time.Shift();
-	// 	Serial.printf("Time:%d:%d:%d\r\n", time.Days, time.Hours, time.Minutes);
-	// }
+	Time time1={2, 3, 15};
+ 	tasks.AddItem(time1, 60, 3);
+ 	Time time5={2, 4, 13};
+ 	tasks.AddItem(time5, 60, 6);
+ 	Time time6={2, 6, 42};
+ 	tasks.AddItem(time6, 60, 4);
+ 	Time time2={5, 11, 55};
+ 	tasks.AddItem(time2, 120, 2);
+ 	Time time3 = {7, 23, 32};
+ 	tasks.AddItem(time3, 10, 1);
+ 	tasks.Write();
+ 	tasks.ItemsClear();
+ 	tasks.Read();
+ 	tasks.Show();
 	Serial.println(WiFi.softAPIP());
 	Serial.println(WiFi.localIP());
 	Serial.printf("setup(): Complite!\r\n");
