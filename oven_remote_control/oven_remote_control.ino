@@ -7,7 +7,9 @@
 #include <Crypto.h>
 #include <SHA512.h>
 #include <vector>
+#include <esp_task_wdt.h>
 
+#define HASH_SIZE 32
 
 typedef struct {
 			uint8_t WeekDay;
@@ -154,6 +156,63 @@ class Ethernet {
 
 		Ethernet(const String &path, const char* ssid, const char* password, bool isHotspot = false) : _path(path){
 			_settings = {ssid, password, isHotspot};
+			FileWrite();
+			Connect();
+		}
+		Ethernet(const String &path) : _path(path){
+			_settings = {"Pzz Oven", "testtest", true};
+			FileRead();
+			Connect();
+		}
+
+		void FileWrite(){
+			File file = SPIFFS.open(_path.c_str(), FILE_WRITE);
+			file.write((uint8_t*)&_settings, sizeof(EthernetSettings));
+			file.close();
+		}
+
+		void FileRead(){
+			File file = SPIFFS.open(_path.c_str(), FILE_READ);
+			if(!file){
+				return;
+			}
+			file.readBytes((char*)&_settings, sizeof(EthernetSettings));
+			file.close();
+		}
+
+		void NetworksScan(){
+			esp_task_wdt_init(30, false);
+			Serial.println("scan start");
+			_nwNum = WiFi.scanNetworks();
+			Serial.println("scan done");
+			esp_task_wdt_init(5, false);
+		}
+
+		DynamicJsonDocument NetworksToJson(){	
+			DynamicJsonDocument wifiJson(JsonSize());
+			if(_nwNum == 0){
+				return wifiJson;
+			}else{
+				for (int i = 0; i < _nwNum; i++){
+					// Serial.println(i);
+					// Serial.println(WiFi.SSID(i));
+					// Serial.println(WiFi.RSSI(i));
+					// Serial.println("-----------------------------");
+					wifiJson[i]["SSID"] = WiFi.SSID(i);
+					wifiJson[i]["RSSI"] = WiFi.RSSI(i);
+				}
+			}
+			return wifiJson;
+		}
+
+		size_t JsonSize(){
+			if(_nwNum == 0){
+				return 70;
+			}
+			return _nwNum * 70;
+		}
+
+		void Connect(){
 			if(_settings.isHotspot){
 				if(_settings.password == ""){
 					WiFi.softAP(_settings.ssid);
@@ -170,93 +229,91 @@ class Ethernet {
     	Serial.println(".");
     	Serial.println("WiFi Connected");
 		}
-		Ethernet(const String &path) : _path(path){
-			_settings = {"Pzz Oven", "testtest", true};
-			// _ReadSettings();
-			if(_settings.isHotspot == true){
-				if(_settings.password == ""){
-					WiFi.softAP(_settings.ssid);
-				} else {
-					WiFi.softAP(_settings.ssid, _settings.password);
-				}	
-			} else {
-				WiFi.begin(_settings.ssid, _settings.password);
-			}
-		}
-
-		DynamicJsonDocument NetworksToJson(){
-			_nwNum = WiFi.scanNetworks();
-			DynamicJsonDocument wifiJson(JsonSize());
-			if(_nwNum == 0){
-				return wifiJson;
-			}else{
-				for (int i = 0; i < _nwNum; i++){
-					wifiJson[i]["SSID"] = WiFi.SSID(i);
-					wifiJson[i]["RSSI"] = WiFi.RSSI(i);	
-				}
-			}
-			return wifiJson;
-		}
-
-		size_t JsonSize(){
-			return abs(_nwNum) * 50;
-		}
-
-		// void Connect(EthernetSettings settings){
-		// 	unsigned long time = millis();
-
-		// 	if(settings.password = ""){
-		// 		WiFi.begin(settings.ssid);
-		// 	} else {
-		// 		WiFi.begin(settings.ssid, settings.password);
-		// 	}
-
-		// 	delay(5000);
-		// }
 
 	private:
 		EthernetSettings _settings;
 		String _path;
 		int _nwNum;
-
-
-		// void _ReadSettings(){
-		// 	STORAGE->Read(_path, (char*)&_settings, sizeof(_settings));
-		// }
-
-		// void _WriteSettings(){
-		// 	STORAGE->Write(_path, (uint8_t*)&_settings, sizeof(_settings));
-		// }
-
 };
 
 Ethernet * ETHERNET;
+
+String array_to_string(byte array[], unsigned int len){
+	char buffer[len*2];
+	Serial.println(len);
+  for (unsigned int i = 0; i < len; i++){
+    byte nib1 = (array[i] >> 4) & 0x0F;
+    byte nib2 = (array[i] >> 0) & 0x0F;
+    buffer[i*2+0] = nib1  < 0xA ? '0' + nib1  : 'A' + nib1  - 0xA;
+    buffer[i*2+1] = nib2  < 0xA ? '0' + nib2  : 'A' + nib2  - 0xA;
+  }
+  buffer[len*2] = '\0';
+  Serial.println(strlen(buffer));
+  return String(buffer);
+}
+
+String toHash(const String & login, const String & password){
+			const char* secret = "KIsgsdD";
+			char final[HASH_SIZE];
+			SHA512 sha512;
+			sha512.update(login.c_str(), login.length());
+			sha512.update(secret, strlen(secret));
+			sha512.update(password.c_str(), password.length());
+			sha512.finalize(final, HASH_SIZE);
+			return array_to_string((byte*)final, HASH_SIZE);
+		}
+
 class WebPanel {
 	public:
 		WebPanel(int port = 80) : _server(port) {
 			Serial.printf("WebServer was started on :%d port.\r\n", port);
-			_Initialize();
+			_CredentialsRead();
+			_ServerInitialize();
 		}
 
 	private:
-		AsyncWebServer _server;
+		typedef struct {
+    	String login;
+    	String hash;
+    	bool nowOnline;
+		} AuthItem;
 
-		void _Initialize(){
+		AsyncWebServer _server;
+		std::vector<AuthItem> _AuthItems;
+
+		void _ServerInitialize(){
 			_server.on("/", HTTP_GET, [this](AsyncWebServerRequest* request){ _HandlerRooT(request); });
 			_server.on("/table", HTTP_GET, [this](AsyncWebServerRequest* request){ _HandlerTable(request); });
-			_server.on("/dispence", HTTP_GET, [this](AsyncWebServerRequest* request) { _DispenceHandler(request); });
-			_server.on("/action", HTTP_GET, [this](AsyncWebServerRequest* request) { _DispenceHandler(request); });
+			_server.on("/give", HTTP_GET, [this](AsyncWebServerRequest* request) { _GiveHandler(request); });
+			_server.on("/take", HTTP_GET, [this](AsyncWebServerRequest* request) { _TakeHandler(request); });
 			_server.on("/auth", HTTP_GET, [this](AsyncWebServerRequest* request) { _AuthHandler(request); });
 
 			_server.begin();
 		}
 		void _AuthHandler(AsyncWebServerRequest* request){
+			// http://46.216.20.67:81/auth?login=asdas&password=asdasd
+			// DynamicJsonDocument authJson(60);
 			if(request->hasParam("password") && request->hasParam("login")){
-				AsyncWebHeader* password = request->getHeader("password");
-				AsyncWebHeader* login = request->getHeader("login");
-				SHA512 sha512;
+				AsyncWebParameter* password = request->getParam("password");
+				AsyncWebParameter* login = request->getParam("login");
+				// authJson["authorized"] = false;
+				String hash = toHash(login->value().c_str(), password->value().c_str());
+				Serial.println(hash);
+				for(int i = 0; i < _AuthItems.size(); i++){
+					if(_AuthItems[i].hash == hash){
+						// authJson["authorized"] = true;
+						AsyncWebServerResponse* response = request->beginResponse(302);
+						response->addHeader("Set-Cookie", "authtoken=" + hash + ";");
+            response->addHeader("Location", "/");
+            request->send(response);
+						return;
+					}
+				}
+				request->redirect("/table");
 			}
-
+			// String finishJson;
+			// serializeJson(authJson, finishJson);
+			// request->send(200, "text/html", finishJson);
 		}
 
 		void _HandlerRooT(AsyncWebServerRequest* request){
@@ -272,27 +329,28 @@ class WebPanel {
 		size_t _JsonSizeCalc(AsyncWebServerRequest* request){
 			size_t bytes = 0;
 			if(request->hasParam("table")){
-				bytes += tasks.JsonSize() + 20;
+				bytes += tasks.JsonSize() + 40;
 			}
 			if(request->hasParam("cook_temp")){
-        bytes += 20;
+        bytes += 40;
       }
       if(request->hasParam("conveyer")){
-        bytes += 15;
+        bytes += 40;
       }
       if(request->hasParam("fan")){
-        bytes += 15;
+        bytes += 40;
       }
       if(request->hasParam("led")){
-      	bytes += 25;
+      	bytes += 40;
       }
       if(request->hasParam("wifi")){
-        bytes += ETHERNET->JsonSize() + 20;
+      	ETHERNET->NetworksScan();
+        bytes += ETHERNET->JsonSize() + 60;
       }
       return bytes;
 		}
 
-		void _DispenceHandler(AsyncWebServerRequest* request){
+		void _GiveHandler(AsyncWebServerRequest* request){
 			DynamicJsonDocument dispenceJson(_JsonSizeCalc(request));
 
 			if(request->hasParam("table")) {
@@ -327,8 +385,42 @@ class WebPanel {
       request->send(200, "text/plain", finishJson);
 		}
 
-		void _ActionHandler(AsyncWebServerRequest* request){
-			
+		void _TakeHandler(AsyncWebServerRequest* request){
+			request->send(200, "text/plain", "ggwp");
+		}
+
+		void _CredentialsRead(){
+			_AuthItems.clear();
+			File file = SPIFFS.open("auth.bin", FILE_READ);
+			while(file.available()){
+				AuthItem buf;
+				file.readBytes((char*)&buf, sizeof(AuthItem));
+				_AuthItems.push_back(buf);
+			}
+			file.close();
+			if(_AuthItems.size() == 0){
+				AuthItem item = {"test", "BF5F6AB37D23D8CADDBBF3999DCCF934B64251A2257B22E3A7C07FD45E38DF15", false};
+				_AuthItems.push_back(item);
+			}
+		}
+
+		void _CredentialsWrite(){
+			SPIFFS.remove("auth.bin");
+			File file = SPIFFS.open("auth.bin", FILE_WRITE);
+			for(int i = 0; i < _AuthItems.size(); i++){
+				file.write((uint8_t*)&_AuthItems[i], sizeof(AuthItem));
+			}
+			file.close();
+		}
+
+		bool _CheckAccessToken(AsyncWebServerRequest* request){
+			if(request->hasHeader("Cookie")){
+				AsyncWebHeader* rawCookie = request->getHeader("Cookie");
+
+				if(rawCookie->value().indexOf("authtoken=")){
+
+				}
+			}
 		}
 };
 
@@ -341,6 +433,7 @@ void setup(){
 		Serial.println("SPIFFS Mount Failed");
 	}
 	Serial.begin(115200);
+
 	// ETHERNET = new Ethernet("ethernet.bin", "Atlantida", "Kukuruza+137", false);
 	// ETHERNET = new Ethernet("ethernet.bin", "White Power", "12121212", false);
 	ETHERNET = new Ethernet("ethernet.bin", "IwG", "qawsedrf", false);
