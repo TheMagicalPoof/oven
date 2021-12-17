@@ -126,9 +126,9 @@ class Schedule {
 			for (int i = 0; i < _items.size(); i++){
 				uint8_t weekDay = _items[i].startSwitchTime.WeekDay;
 				wd[weekDay-1]++;
-				json["weekday"][String(weekDay)][wd[weekDay-1]]["mode"] = GetModeName(_items[i].task);
-				json["weekday"][String(weekDay)][wd[weekDay-1]]["time"] = String(_items[i].startSwitchTime.Hour) + ":" + String(_items[i].startSwitchTime.Minute);
-				json["weekday"][String(weekDay)][wd[weekDay-1]]["preparemin"] = _items[i].totalSwitchMinutes;
+				json["weekday"][weekDay-1][wd[weekDay-1]]["mode"] = GetModeName(_items[i].task);
+				json["weekday"][weekDay-1][wd[weekDay-1]]["time"] = String(_items[i].startSwitchTime.Hour) + ":" + String(_items[i].startSwitchTime.Minute);
+				json["weekday"][weekDay-1][wd[weekDay-1]]["preparemin"] = _items[i].totalSwitchMinutes;
 				
 			}
 			return json;
@@ -282,46 +282,44 @@ class WebPanel {
 		std::vector<AuthItem> _AuthItems;
 
 		void _ServerInitialize(){
-			_server.on("/", HTTP_GET, [this](AsyncWebServerRequest* request){ _HandlerRooT(request); });
-			_server.on("/table", HTTP_GET, [this](AsyncWebServerRequest* request){ _HandlerTable(request); });
+			DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
+			_server.on("/", HTTP_GET, [this](AsyncWebServerRequest* request){ _RootHandler(request); });
+			_server.on("/table", HTTP_GET, [this](AsyncWebServerRequest* request){ _TableHandler(request); });
 			_server.on("/give", HTTP_GET, [this](AsyncWebServerRequest* request) { _GiveHandler(request); });
 			_server.on("/take", HTTP_GET, [this](AsyncWebServerRequest* request) { _TakeHandler(request); });
-			_server.on("/auth", HTTP_GET, [this](AsyncWebServerRequest* request) { _AuthHandler(request); });
+			_server.on("/auth", HTTP_POST, [this](AsyncWebServerRequest* request) { _AuthHandler(request); });
 
 			_server.begin();
 		}
+
 		void _AuthHandler(AsyncWebServerRequest* request){
 			// http://46.216.20.67:81/auth?login=asdas&password=asdasd
-			// DynamicJsonDocument authJson(60);
-			if(request->hasParam("password") && request->hasParam("login")){
-				AsyncWebParameter* password = request->getParam("password");
-				AsyncWebParameter* login = request->getParam("login");
-				// authJson["authorized"] = false;
+			DynamicJsonDocument authJson(200);
+			authJson["authorized"] = false;
+			if(request->hasParam("password", true) && request->hasParam("login", true)){
+				AsyncWebParameter* password = request->getParam("password", true);
+				AsyncWebParameter* login = request->getParam("login", true);
 				String hash = toHash(login->value().c_str(), password->value().c_str());
 				Serial.println(hash);
+				
 				for(int i = 0; i < _AuthItems.size(); i++){
 					if(_AuthItems[i].hash == hash){
-						// authJson["authorized"] = true;
-						AsyncWebServerResponse* response = request->beginResponse(302);
-						response->addHeader("Set-Cookie", "authtoken=" + hash + ";");
-            response->addHeader("Location", "/");
-            request->send(response);
-						return;
+						authJson["authorized"] = true;
+						authJson["token"] = hash;
 					}
 				}
-				request->redirect("/table");
 			}
-			// String finishJson;
-			// serializeJson(authJson, finishJson);
-			// request->send(200, "text/html", finishJson);
+			String finishJson;
+			serializeJson(authJson, finishJson);
+			request->send(200, "text/plain", finishJson);
 		}
 
-		void _HandlerRooT(AsyncWebServerRequest* request){
+		void _RootHandler(AsyncWebServerRequest* request){
 			Serial.println("пытается в The Root");
 			request->send(200, "text/plain", "The Root");
 		}
 
-		void _HandlerTable(AsyncWebServerRequest* request){
+		void _TableHandler(AsyncWebServerRequest* request){
 			Serial.println("пытается в The Table");
 			request->send(200, "text/plain", "The Table");
 		}
@@ -416,11 +414,13 @@ class WebPanel {
 		bool _CheckAccessToken(AsyncWebServerRequest* request){
 			if(request->hasHeader("Cookie")){
 				AsyncWebHeader* rawCookie = request->getHeader("Cookie");
-
-				if(rawCookie->value().indexOf("authtoken=")){
-
+				for(int i = 0; i < _AuthItems.size(); i++){
+					if(_AuthItems[i].hash == rawCookie->value()){
+						return true;
+					}
 				}
 			}
+			return false;
 		}
 };
 
