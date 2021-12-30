@@ -1,4 +1,5 @@
 #include <ArduinoJson.h>
+#include "AsyncJson.h"
 #include <AsyncTCP.h>
 #include "FS.h"
 #include "SPIFFS.h"
@@ -10,12 +11,49 @@
 #include <esp_task_wdt.h>
 
 #define HASH_SIZE 32
+#define RESET_BUTTON_PIN 15
+#define RESET_BUTTON_PRESSED_TIME 5000
+#define LED_PIN 23
+
+unsigned long CurrentMillis = 0;
+unsigned long OneSecondLoopMillis = 0;
+unsigned long ButtonMillis = 0;
+
+// class UiManager(){
+
+// };
+
+// class KeyboardManager(){
+// public:
+// 	void SwitchKeyboardMode(bool* mode){
+
+
+// 	}
+
+// 	void EnableEmulateMode(){
+
+// 	}
+
+// 	void DisableEmulateMode(){
+
+// 	}
+
+// 	void EnableReadMode(){
+
+// 	}
+
+// 	void DisableReadMode(){
+
+// 	}
+
+// };
 
 typedef struct {
 			uint8_t WeekDay;
     	uint8_t Hour;
     	uint8_t Minute;
 		} Time;
+
 
 class TimeManager {
 	public:
@@ -124,6 +162,9 @@ class Schedule {
 			DynamicJsonDocument json(JsonSize());
 			int wd[7] = {-1,-1,-1,-1,-1,-1,-1};
 			for (int i = 0; i < _items.size(); i++){
+				for(int wd = 0; wd < 7; wd++){
+					
+				}
 				uint8_t weekDay = _items[i].startSwitchTime.WeekDay;
 				wd[weekDay-1]++;
 				json["weekday"][weekDay-1][wd[weekDay-1]]["mode"] = GetModeName(_items[i].task);
@@ -155,14 +196,27 @@ class Ethernet {
 		} EthernetSettings;
 
 		Ethernet(const String &path, const char* ssid, const char* password, bool isHotspot = false) : _path(path){
-			_settings = {ssid, password, isHotspot};
+			Serial.println(isHotspot);
+			
+			SettingsSet(ssid, password, isHotspot);
 			FileWrite();
 			Connect();
 		}
+
 		Ethernet(const String &path) : _path(path){
-			_settings = {"Pzz Oven", "testtest", true};
+			SettingsSet("Pzz Oven", "testtest", true);
 			FileRead();
 			Connect();
+		}
+
+		void Reset(){
+			SettingsSet("Pzz Oven", "testtest", true);
+			Connect();
+		}
+
+		void SettingsSet(const char* ssid, const char* password, bool isHotspot){
+			_settings = {ssid, password, isHotspot};
+			FileWrite();
 		}
 
 		void FileWrite(){
@@ -213,6 +267,7 @@ class Ethernet {
 		}
 
 		void Connect(){
+			WiFi.disconnect();
 			if(_settings.isHotspot){
 				if(_settings.password == ""){
 					WiFi.softAP(_settings.ssid);
@@ -221,11 +276,13 @@ class Ethernet {
 				}	
 			} else {
 				WiFi.begin(_settings.ssid, _settings.password);
+				while (WiFi.status() != WL_CONNECTED){
+					Serial.print(".");
+	        delay(500);
+    		}
 			}
-			while (WiFi.status() != WL_CONNECTED){
-				Serial.print(".");
-        delay(500);
-    	}
+
+			
     	Serial.println(".");
     	Serial.println("WiFi Connected");
 		}
@@ -268,7 +325,7 @@ class WebPanel {
 		WebPanel(int port = 80) : _server(port) {
 			Serial.printf("WebServer was started on :%d port.\r\n", port);
 			_CredentialsRead();
-			_ServerInitialize();
+			_ServerRoutes();
 		}
 
 	private:
@@ -281,7 +338,7 @@ class WebPanel {
 		AsyncWebServer _server;
 		std::vector<AuthItem> _AuthItems;
 
-		void _ServerInitialize(){
+		void _ServerRoutes(){
 			DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
 			_server.on("/", HTTP_GET, [this](AsyncWebServerRequest* request){ _RootHandler(request); });
 			_server.on("/table", HTTP_GET, [this](AsyncWebServerRequest* request){ _TableHandler(request); });
@@ -289,9 +346,15 @@ class WebPanel {
 			_server.on("/take", HTTP_GET, [this](AsyncWebServerRequest* request) { _TakeHandler(request); });
 			_server.on("/auth", HTTP_POST, [this](AsyncWebServerRequest* request) { _AuthHandler(request); });
 
+			AsyncCallbackJsonWebHandler *handler = new AsyncCallbackJsonWebHandler("/post-message", [this](AsyncWebServerRequest *request, JsonVariant &json) { _ });
+			_server.addHandler(handler);
 			_server.begin();
 		}
 
+		void _WifiHandler(AsyncWebServerRequest *request, JsonVariant &json) {
+			
+		}
+		
 		void _AuthHandler(AsyncWebServerRequest* request){
 			// http://46.216.20.67:81/auth?login=asdas&password=asdasd
 			DynamicJsonDocument authJson(200);
@@ -322,6 +385,7 @@ class WebPanel {
 		void _TableHandler(AsyncWebServerRequest* request){
 			Serial.println("пытается в The Table");
 			request->send(200, "text/plain", "The Table");
+			// if(request->hasParam("ssid"))
 		}
 
 		size_t _JsonSizeCalc(AsyncWebServerRequest* request){
@@ -339,7 +403,7 @@ class WebPanel {
         bytes += 40;
       }
       if(request->hasParam("led")){
-      	bytes += 40;
+      	bytes += 80;
       }
       if(request->hasParam("wifi")){
       	ETHERNET->NetworksScan();
@@ -438,8 +502,9 @@ void setup(){
 	// ETHERNET = new Ethernet("ethernet.bin", "White Power", "12121212", false);
 	ETHERNET = new Ethernet("ethernet.bin", "IwG", "qawsedrf", false);
 	// STORAGE = new Storage();
-	
 	new WebPanel(80);
+	
+	
 	Time time1={2, 3, 15};
  	tasks.AddItem(time1, 60, 3);
  	Time time5={2, 4, 13};
@@ -457,8 +522,34 @@ void setup(){
 	Serial.println(WiFi.softAPIP());
 	Serial.println(WiFi.localIP());
 	Serial.printf("setup(): Complite!\r\n");
+	pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
+	pinMode(LED_PIN, OUTPUT);
+	digitalWrite(LED_PIN, HIGH);
+
+
 }
-	
-  
+void ResetButtonCheck(){
+	if(digitalRead(RESET_BUTTON_PIN)){
+		ButtonMillis = CurrentMillis;
+	}
+
+	if(CurrentMillis - ButtonMillis >= RESET_BUTTON_PRESSED_TIME){
+		digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+		ETHERNET -> Reset();
+		ButtonMillis = CurrentMillis;
+	}
+}
+
+void loopOneSecond(){
+	ResetButtonCheck();
+		
+}
+
 void loop(){
+	CurrentMillis = millis();
+
+	if(CurrentMillis - OneSecondLoopMillis >= 1000){
+		loopOneSecond();
+		OneSecondLoopMillis = CurrentMillis;
+	}
 }
