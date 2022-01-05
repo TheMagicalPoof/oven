@@ -346,13 +346,21 @@ class WebPanel {
 			_server.on("/take", HTTP_GET, [this](AsyncWebServerRequest* request) { _TakeHandler(request); });
 			_server.on("/auth", HTTP_POST, [this](AsyncWebServerRequest* request) { _AuthHandler(request); });
 
-			AsyncCallbackJsonWebHandler *handler = new AsyncCallbackJsonWebHandler("/post-message", [this](AsyncWebServerRequest *request, JsonVariant &json) { _ });
+			AsyncCallbackJsonWebHandler *handler = new AsyncCallbackJsonWebHandler("/wifi", [this](AsyncWebServerRequest *request, JsonVariant &json) {
+				_WifiHandler(request, json);
+			});
 			_server.addHandler(handler);
 			_server.begin();
 		}
 
-		void _WifiHandler(AsyncWebServerRequest *request, JsonVariant &json) {
-			
+		void _WifiHandler(AsyncWebServerRequest *request, JsonVariant json) {
+			StaticJsonDocument<200> data;
+    
+    String response;
+    deserializeJson(data, jsonObj);
+    serializeJson(data, response);
+    request->send(200, "application/json", response);
+    Serial.println(response);
 		}
 		
 		void _AuthHandler(AsyncWebServerRequest* request){
@@ -500,7 +508,8 @@ void setup(){
 
 	// ETHERNET = new Ethernet("ethernet.bin", "Atlantida", "Kukuruza+137", false);
 	// ETHERNET = new Ethernet("ethernet.bin", "White Power", "12121212", false);
-	ETHERNET = new Ethernet("ethernet.bin", "IwG", "qawsedrf", false);
+	// ETHERNET = new Ethernet("ethernet.bin", "IwG", "qawsedrf", false);
+	ETHERNET = new Ethernet("ethernet.bin", "dom2", "4438144381", false);
 	// STORAGE = new Storage();
 	new WebPanel(80);
 	
