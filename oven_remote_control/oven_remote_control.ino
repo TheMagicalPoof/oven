@@ -1,4 +1,4 @@
-#include <ArduinoJson.h>
+#include "ArduinoJson.h"
 #include "AsyncJson.h"
 #include <AsyncTCP.h>
 #include "FS.h"
@@ -345,22 +345,45 @@ class WebPanel {
 			_server.on("/give", HTTP_GET, [this](AsyncWebServerRequest* request) { _GiveHandler(request); });
 			_server.on("/take", HTTP_GET, [this](AsyncWebServerRequest* request) { _TakeHandler(request); });
 			_server.on("/auth", HTTP_POST, [this](AsyncWebServerRequest* request) { _AuthHandler(request); });
-
-			AsyncCallbackJsonWebHandler *handler = new AsyncCallbackJsonWebHandler("/wifi", [this](AsyncWebServerRequest *request, JsonVariant &json) {
-				_WifiHandler(request, json);
-			});
-			_server.addHandler(handler);
+			// _server.addHandler(new AsyncCallbackJsonWebHandler("/wifi", [this](AsyncWebServerRequest *request, JsonVariant &json) { _WifiHandler(request, json); }));
+			// _server.addHandler(new AsyncCallbackJsonWebHandler("/wifi", [](AsyncWebServerRequest *request) {
+			// 	request->send(200, "text/plain", "ggwp!");
+			// }));
+			_server.onRequestBody([this](AsyncWebServerRequest * request, uint8_t *data, size_t len, size_t index, size_t total) {
+				if (request->url() == "/wifi") {
+      DynamicJsonDocument jsonBuffer(1000);
+      JsonObject& root = jsonBuffer.parseObject((const char*)data);
+      if (root.success()) {
+        if (root.containsKey("command")) {
+          Serial.println(root["command"].asString()); // Hello
+        }
+      }
+      request->send(200, "text/plain", "end");
+    }
+  });
 			_server.begin();
 		}
 
-		void _WifiHandler(AsyncWebServerRequest *request, JsonVariant json) {
-			StaticJsonDocument<200> data;
-    
-    String response;
-    deserializeJson(data, jsonObj);
-    serializeJson(data, response);
-    request->send(200, "application/json", response);
-    Serial.println(response);
+
+		void _WifiHandler(AsyncWebServerRequest *request) {
+			Serial.println("test");
+			int params = request->params(); // 0
+	  	Serial.println(params);
+	  	if (request->hasParam("body", true)) { // This is important, otherwise the sketch will crash if there is no body
+	    	request->send(200, "text/plain", request->getParam("body", true)->value());
+	  	} else {
+	    	request->send(200, "text/plain", "Fin!");
+	  	}
+			// StaticJsonDocument<200> data;
+	  	// String response;
+	    // Serial.println("before");
+	    // Serial.println(json.as<String>());
+	    // deserializeJson(data, json);
+	    // Serial.println("after");
+	    // Serial.println(data["message"].as<String>());
+	    // serializeJson(data, response);
+	    // request->send(200, "application/json", response);
+	    // Serial.println(response);
 		}
 		
 		void _AuthHandler(AsyncWebServerRequest* request){
@@ -508,8 +531,8 @@ void setup(){
 
 	// ETHERNET = new Ethernet("ethernet.bin", "Atlantida", "Kukuruza+137", false);
 	// ETHERNET = new Ethernet("ethernet.bin", "White Power", "12121212", false);
-	// ETHERNET = new Ethernet("ethernet.bin", "IwG", "qawsedrf", false);
-	ETHERNET = new Ethernet("ethernet.bin", "dom2", "4438144381", false);
+	ETHERNET = new Ethernet("ethernet.bin", "IwG", "qawsedrf", false);
+	// ETHERNET = new Ethernet("ethernet.bin", "dom2", "4438144381", false);
 	// STORAGE = new Storage();
 	new WebPanel(80);
 	
