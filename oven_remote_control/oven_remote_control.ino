@@ -366,6 +366,7 @@ class WebPanel {
 
 
 		void _WifiHandler(AsyncWebServerRequest *request) {
+			// curl -i -d '{"message":"Myk", "user":"cocksucker"}' -H "Content-Type: application/json" -X POST http://192.168.0.102/wifi
 			Serial.println("test");
 			int params = request->params(); // 0
 	  	Serial.println(params);
