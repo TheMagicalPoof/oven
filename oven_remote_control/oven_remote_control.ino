@@ -30,15 +30,14 @@ typedef struct {
 		RGB color;
   	String name;
   	int prepareMinutes;
-  	bool prepare;
 	} WorkMode;
 
-	WorkMode _MODE1 = {{0, 0, 255}, "MODE 1", 120, false};
-	WorkMode _MODE2 = {{0, 0, 255}, "MODE 2", 120, false};
-	WorkMode _MODE3 = {{0, 0, 255}, "MODE 3", 120, false};
-	WorkMode _MODE4 = {{0, 0, 255}, "MODE 4", 120, false};
-	WorkMode _IDLE = {{0, 0, 255}, "IDLE", 0, false};
-	WorkMode _DISABLED = {{0, 0, 255}, "DISABLED", 0, false};
+	WorkMode _MODE1 = {{0, 0, 255}, "MODE 1", 120};
+	WorkMode _MODE2 = {{0, 0, 255}, "MODE 2", 120};
+	WorkMode _MODE3 = {{0, 0, 255}, "MODE 3", 120};
+	WorkMode _MODE4 = {{0, 0, 255}, "MODE 4", 120};
+	WorkMode _IDLE = {{0, 0, 255}, "IDLE", 0};
+	WorkMode _DISABLED = {{0, 0, 255}, "DISABLED", 0};
 
 typedef struct {
 			uint8_t WeekDay;
@@ -202,7 +201,12 @@ class Ethernet {
 		}
 
 		void TryConnect(const char* ssid, const char* password, bool isHotspot = false){
-			EthernetSettings try
+			EthernetSettings trySettings = {ssid, password, isHotspot};
+			if(Connect(trySettings)){
+				_settings = trySettings;
+				FileWrite();
+			}
+
 		}
 
 		void Reset(){
@@ -260,24 +264,30 @@ class Ethernet {
 		}
 
 		void Connect(){
+			Connect(_settings);
+		}
+
+		bool Connect(EthernetSettings settings){
 			WiFi.disconnect();
-			if(_settings.isHotspot){
-				if(_settings.password == ""){
-					WiFi.softAP(_settings.ssid);
+			unsigned long startMillis = millis();
+			if(settings.isHotspot){
+				if(settings.password == ""){
+					WiFi.softAP(settings.ssid);
 				} else {
-					WiFi.softAP(_settings.ssid, _settings.password);
+					WiFi.softAP(settings.ssid, settings.password);
 				}	
 			} else {
-				WiFi.begin(_settings.ssid, _settings.password);
-				while (WiFi.status() != WL_CONNECTED){
-					Serial.print(".");
-	        delay(500);
+				WiFi.begin(settings.ssid, settings.password);
+				while (millis() - startMillis <= 7000){
+					Serial.println(".");
+					if(WiFi.status() == WL_CONNECTED){
+						return true;
+						Serial.println("WiFi Connected");
+					}
     		}
+    		Serial.println("WiFi Connected Fail");
+    		return false;
 			}
-
-			
-    	Serial.println(".");
-    	Serial.println("WiFi Connected");
 		}
 
 	private:
@@ -345,20 +355,23 @@ class WebPanel {
 			_server.addHandler(new AsyncCallbackJsonWebHandler("/data", [this](AsyncWebServerRequest *request, JsonVariant &json) { _WifiHandler(request, json); }));
 			_server.begin();
 		}
+
 		void _NewWifiHandler(AsyncWebServerRequest *request){
 			if(request->hasParam("ssid") && request->hasParam("password")){
 				AsyncWebParameter* ssid = request->getParam("ssid");
-				AsyncWebParameter* password = request->getParam("password");		
+				AsyncWebParameter* password = request->getParam("password");
+
+				if(request->hasParam("hotspot")){
+					ETHERNET->TryConnect(ssid->value().c_str(), password->value().c_str(), true);
+				} else {
+					ETHERNET->TryConnect(ssid->value().c_str(), password->value().c_str(), false);
+				}
+
 			} else {
 				request->send(200, "text/plain", "Bad Request!");
 				return;
 			}
-			if(request->hasParam("hotspot")){
-				ETHERNET->SettingsSet(ssid->value().c_str(), password->value().c_str(), true)
-			} else {
-				ETHERNET->SettingsSet(ssid->value().c_str(), password->value().c_str(), false)
-			}
-			ETHERNET->
+			
 			
 		}
 
@@ -514,7 +527,7 @@ void setup(){
 
 	// ETHERNET = new Ethernet("ethernet.bin", "Atlantida", "Kukuruza+137", false);
 	// ETHERNET = new Ethernet("ethernet.bin", "White Power", "12121212", false);
-	ETHERNET = new Ethernet("ethernet.bin", "IwG", "qawsedrf", false);
+	ETHERNET = new Ethernet("ethernet.bin", "IwG", "qawsedrf", true);
 	ETHERNET->NetworksScan();
 	// ETHERNET = new Ethernet("ethernet.bin", "dom2", "4438144381", false);
 	// STORAGE = new Storage();
