@@ -16,37 +16,29 @@
 #define LED_PIN 23
 
 unsigned long CurrentMillis = 0;
-unsigned long OneSecondLoopMillis = 0;
+unsigned long FirstMillis = 0;
+unsigned long SecondMillis = 0;
 unsigned long ButtonMillis = 0;
 
-// class UiManager(){
+typedef struct {
+			uint8_t r;
+    	uint8_t g;
+    	uint8_t b;
+		} RGB;
 
-// };
+typedef struct {
+		RGB color;
+  	String name;
+  	int prepareMinutes;
+  	bool prepare;
+	} WorkMode;
 
-// class KeyboardManager(){
-// public:
-// 	void SwitchKeyboardMode(bool* mode){
-
-
-// 	}
-
-// 	void EnableEmulateMode(){
-
-// 	}
-
-// 	void DisableEmulateMode(){
-
-// 	}
-
-// 	void EnableReadMode(){
-
-// 	}
-
-// 	void DisableReadMode(){
-
-// 	}
-
-// };
+	WorkMode _MODE1 = {{0, 0, 255}, "MODE 1", 120, false};
+	WorkMode _MODE2 = {{0, 0, 255}, "MODE 2", 120, false};
+	WorkMode _MODE3 = {{0, 0, 255}, "MODE 3", 120, false};
+	WorkMode _MODE4 = {{0, 0, 255}, "MODE 4", 120, false};
+	WorkMode _IDLE = {{0, 0, 255}, "IDLE", 0, false};
+	WorkMode _DISABLED = {{0, 0, 255}, "DISABLED", 0, false};
 
 typedef struct {
 			uint8_t WeekDay;
@@ -209,6 +201,10 @@ class Ethernet {
 			Connect();
 		}
 
+		void TryConnect(const char* ssid, const char* password, bool isHotspot = false){
+			EthernetSettings try
+		}
+
 		void Reset(){
 			SettingsSet("Pzz Oven", "testtest", true);
 			Connect();
@@ -235,23 +231,19 @@ class Ethernet {
 		}
 
 		void NetworksScan(){
-			esp_task_wdt_init(30, false);
-			Serial.println("scan start");
-			_nwNum = WiFi.scanNetworks();
-			Serial.println("scan done");
-			esp_task_wdt_init(5, false);
+			Serial.println("scan networks");
+			WiFi.scanDelete();
+			WiFi.scanNetworks(true, true);
 		}
 
-		DynamicJsonDocument NetworksToJson(){	
+		DynamicJsonDocument NetworksToJson(){
+			// Serial.println("Wifi networks");
+			// Serial.println(_nwNum);
 			DynamicJsonDocument wifiJson(JsonSize());
-			if(_nwNum == 0){
+			if(_nwNum < 0){
 				return wifiJson;
 			}else{
 				for (int i = 0; i < _nwNum; i++){
-					// Serial.println(i);
-					// Serial.println(WiFi.SSID(i));
-					// Serial.println(WiFi.RSSI(i));
-					// Serial.println("-----------------------------");
 					wifiJson[i]["SSID"] = WiFi.SSID(i);
 					wifiJson[i]["RSSI"] = WiFi.RSSI(i);
 				}
@@ -260,7 +252,8 @@ class Ethernet {
 		}
 
 		size_t JsonSize(){
-			if(_nwNum == 0){
+			_nwNum = WiFi.scanComplete();
+			if(_nwNum <= 0 ){
 				return 70;
 			}
 			return _nwNum * 70;
@@ -290,7 +283,7 @@ class Ethernet {
 	private:
 		EthernetSettings _settings;
 		String _path;
-		int _nwNum;
+		int _nwNum = -2;
 };
 
 Ethernet * ETHERNET;
@@ -342,49 +335,36 @@ class WebPanel {
 			DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
 			_server.on("/", HTTP_GET, [this](AsyncWebServerRequest* request){ _RootHandler(request); });
 			_server.on("/table", HTTP_GET, [this](AsyncWebServerRequest* request){ _TableHandler(request); });
-			_server.on("/give", HTTP_GET, [this](AsyncWebServerRequest* request) { _GiveHandler(request); });
-			_server.on("/take", HTTP_GET, [this](AsyncWebServerRequest* request) { _TakeHandler(request); });
+			_server.on("/output", HTTP_GET, [this](AsyncWebServerRequest* request) { _OutputHandler(request); });
+			_server.on("/input", HTTP_GET, [this](AsyncWebServerRequest* request) { _InputHandler(request); });
 			_server.on("/auth", HTTP_POST, [this](AsyncWebServerRequest* request) { _AuthHandler(request); });
-			// _server.addHandler(new AsyncCallbackJsonWebHandler("/wifi", [this](AsyncWebServerRequest *request, JsonVariant &json) { _WifiHandler(request, json); }));
-			// _server.addHandler(new AsyncCallbackJsonWebHandler("/wifi", [](AsyncWebServerRequest *request) {
-			// 	request->send(200, "text/plain", "ggwp!");
-			// }));
-			_server.onRequestBody([this](AsyncWebServerRequest * request, uint8_t *data, size_t len, size_t index, size_t total) {
-				if (request->url() == "/wifi") {
-      DynamicJsonDocument jsonBuffer(1000);
-      JsonObject& root = jsonBuffer.parseObject((const char*)data);
-      if (root.success()) {
-        if (root.containsKey("command")) {
-          Serial.println(root["command"].asString()); // Hello
-        }
-      }
-      request->send(200, "text/plain", "end");
-    }
-  });
+			_server.on("/newwifi", HTTP_GET, [this](AsyncWebServerRequest* request) { _NewWifiHandler(request); });
+
+			_server.on("/heap", HTTP_GET, [](AsyncWebServerRequest *request){ request->send(200, "text/plain", String(ESP.getFreeHeap())); });
+
+			_server.addHandler(new AsyncCallbackJsonWebHandler("/data", [this](AsyncWebServerRequest *request, JsonVariant &json) { _WifiHandler(request, json); }));
 			_server.begin();
 		}
+		void _NewWifiHandler(AsyncWebServerRequest *request){
+			if(request->hasParam("ssid") && request->hasParam("password")){
+				AsyncWebParameter* ssid = request->getParam("ssid");
+				AsyncWebParameter* password = request->getParam("password");		
+			} else {
+				request->send(200, "text/plain", "Bad Request!");
+				return;
+			}
+			if(request->hasParam("hotspot")){
+				ETHERNET->SettingsSet(ssid->value().c_str(), password->value().c_str(), true)
+			} else {
+				ETHERNET->SettingsSet(ssid->value().c_str(), password->value().c_str(), false)
+			}
+			ETHERNET->
+			
+		}
 
-
-		void _WifiHandler(AsyncWebServerRequest *request) {
-			// curl -i -d '{"message":"Myk", "user":"cocksucker"}' -H "Content-Type: application/json" -X POST http://192.168.0.102/wifi
-			Serial.println("test");
-			int params = request->params(); // 0
-	  	Serial.println(params);
-	  	if (request->hasParam("body", true)) { // This is important, otherwise the sketch will crash if there is no body
-	    	request->send(200, "text/plain", request->getParam("body", true)->value());
-	  	} else {
-	    	request->send(200, "text/plain", "Fin!");
-	  	}
-			// StaticJsonDocument<200> data;
-	  	// String response;
-	    // Serial.println("before");
-	    // Serial.println(json.as<String>());
-	    // deserializeJson(data, json);
-	    // Serial.println("after");
-	    // Serial.println(data["message"].as<String>());
-	    // serializeJson(data, response);
-	    // request->send(200, "application/json", response);
-	    // Serial.println(response);
+		void _WifiHandler(AsyncWebServerRequest *request, JsonVariant json) {
+			serializeJson(json, Serial);
+	    request->send(200, "text/plain", "Fin!");
 		}
 		
 		void _AuthHandler(AsyncWebServerRequest* request){
@@ -438,13 +418,12 @@ class WebPanel {
       	bytes += 80;
       }
       if(request->hasParam("wifi")){
-      	ETHERNET->NetworksScan();
-        bytes += ETHERNET->JsonSize() + 60;
+        bytes += ETHERNET->JsonSize() + 70;
       }
       return bytes;
 		}
 
-		void _GiveHandler(AsyncWebServerRequest* request){
+		void _OutputHandler(AsyncWebServerRequest* request){
 			DynamicJsonDocument dispenceJson(_JsonSizeCalc(request));
 
 			if(request->hasParam("table")) {
@@ -479,7 +458,10 @@ class WebPanel {
       request->send(200, "text/plain", finishJson);
 		}
 
-		void _TakeHandler(AsyncWebServerRequest* request){
+		void _InputHandler(AsyncWebServerRequest* request){
+			if(request->hasParam("networkscan")){
+				ETHERNET->NetworksScan();
+			}
 			request->send(200, "text/plain", "ggwp");
 		}
 
@@ -533,6 +515,7 @@ void setup(){
 	// ETHERNET = new Ethernet("ethernet.bin", "Atlantida", "Kukuruza+137", false);
 	// ETHERNET = new Ethernet("ethernet.bin", "White Power", "12121212", false);
 	ETHERNET = new Ethernet("ethernet.bin", "IwG", "qawsedrf", false);
+	ETHERNET->NetworksScan();
 	// ETHERNET = new Ethernet("ethernet.bin", "dom2", "4438144381", false);
 	// STORAGE = new Storage();
 	new WebPanel(80);
@@ -578,11 +561,20 @@ void loopOneSecond(){
 		
 }
 
+void loopTenMinutes(){
+
+}
+
 void loop(){
 	CurrentMillis = millis();
 
-	if(CurrentMillis - OneSecondLoopMillis >= 1000){
+	if(CurrentMillis - FirstMillis >= 1000){
 		loopOneSecond();
-		OneSecondLoopMillis = CurrentMillis;
+		FirstMillis = CurrentMillis;
+	}
+
+	if(CurrentMillis - SecondMillis >= 600000){
+		loopTenMinutes();
+		SecondMillis = CurrentMillis;
 	}
 }
