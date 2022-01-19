@@ -200,11 +200,19 @@ class Ethernet {
 			Connect();
 		}
 
-		void TryConnect(const char* ssid, const char* password, bool isHotspot = false){
+		bool TryConnect(const char* ssid, const char* password, bool isHotspot = false){
 			EthernetSettings trySettings = {ssid, password, isHotspot};
+			Serial.println(ssid);
+			Serial.println(password);
+			Serial.println(isHotspot);
+
 			if(Connect(trySettings)){
 				_settings = trySettings;
 				FileWrite();
+				return true;
+			} else {
+				Connect();
+				return false;
 			}
 
 		}
@@ -271,23 +279,26 @@ class Ethernet {
 			WiFi.disconnect();
 			unsigned long startMillis = millis();
 			if(settings.isHotspot){
+				WiFi.mode(WIFI_AP);
 				if(settings.password == ""){
 					WiFi.softAP(settings.ssid);
 				} else {
+					Serial.println("softAp");
 					WiFi.softAP(settings.ssid, settings.password);
-				}	
+				}
+				Serial.println("WiFi Hotspot is created.");
+				return true;
 			} else {
+				WiFi.mode(WIFI_STA);
 				WiFi.begin(settings.ssid, settings.password);
-				while (millis() - startMillis <= 7000){
-					Serial.println(".");
-					if(WiFi.status() == WL_CONNECTED){
-						return true;
-						Serial.println("WiFi Connected");
-					}
-    		}
-    		Serial.println("WiFi Connected Fail");
-    		return false;
-			}
+				delay(7000);
+				if(WiFi.status() == WL_CONNECTED){
+					Serial.println("WiFi Connected");
+					return true;
+				}
+    	}
+    	Serial.println("WiFi Connected Fail");
+    	return false;
 		}
 
 	private:
@@ -361,15 +372,13 @@ class WebPanel {
 				AsyncWebParameter* ssid = request->getParam("ssid");
 				AsyncWebParameter* password = request->getParam("password");
 
-				if(request->hasParam("hotspot")){
-					ETHERNET->TryConnect(ssid->value().c_str(), password->value().c_str(), true);
-				} else {
-					ETHERNET->TryConnect(ssid->value().c_str(), password->value().c_str(), false);
+				Serial.println(ssid->value().c_str());
+				Serial.println(password->value().c_str());
+				if(!ETHERNET->TryConnect(ssid->value().c_str(), password->value().c_str(), request->hasParam("hotspot"))){
+					request->send(200, "text/plain", "Bad wifi parameters.");
 				}
-
 			} else {
 				request->send(200, "text/plain", "Bad Request!");
-				return;
 			}
 			
 			
@@ -527,7 +536,7 @@ void setup(){
 
 	// ETHERNET = new Ethernet("ethernet.bin", "Atlantida", "Kukuruza+137", false);
 	// ETHERNET = new Ethernet("ethernet.bin", "White Power", "12121212", false);
-	ETHERNET = new Ethernet("ethernet.bin", "IwG", "qawsedrf", true);
+	ETHERNET = new Ethernet("ethernet.bin", "IwG", "qawsedrf", false);
 	ETHERNET->NetworksScan();
 	// ETHERNET = new Ethernet("ethernet.bin", "dom2", "4438144381", false);
 	// STORAGE = new Storage();
